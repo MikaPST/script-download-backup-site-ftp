@@ -1,8 +1,8 @@
-# 💾 Script de Téléchargement en FTP et de Gestion d'Archives des Sauvegardes de Sites Web 📦
+# 💾 Script de Téléchargement en FTP des Sauvegardes de Sites Web 📦
 
 [🇫🇷 Lire en Français](README.md) | [🇬🇧 Read in English](README_EN.md)
 
-Ce script bash télécharge les archives de sauvegarde des sites web et de leurs bases de données depuis un serveur en FTP, et gère les anciennes archives en supprimant celles qui sont trop anciennes tout en conservant un nombre minimum d'archives sur le 
+Ce script bash télécharge les archives de sauvegarde des sites web et de leurs bases de données depuis un serveur en FTP, et gère les anciennes archives en supprimant celles qui sont trop anciennes tout en conservant un nombre minimum d'archives.
 
 ## 🌟 Fonctionnalités
 

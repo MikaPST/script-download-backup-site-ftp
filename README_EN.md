@@ -1,9 +1,8 @@
-
-# 💾 FTP Backup and Archive Management Script for Websites 📦
+# 💾 FTP Download Script for Website Backup Archives 📦
 
 [🇫🇷 Lire en Français](README.md) | [🇬🇧 Read in English](README_EN.md)
 
-This bash script downloads backup archives of websites and their databases from an FTP server, and manages old archives by deleting those that are too old while retaining a minimum number of archives on the server.
+This bash script downloads backup archives of websites and their databases from an FTP server, and manages old archives by deleting those that are too old while retaining a minimum number of archives.
 
 ## 🌟 Features
 

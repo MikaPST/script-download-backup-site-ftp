@@ -6,8 +6,8 @@ Ce script bash télécharge les archives de sauvegarde des sites web et de leurs
 
 ## 🌟 Fonctionnalités
 
-- 📥 Téléchargement des archives des sites web et de leurs bases de données depuis un serveur FTP.
-- 📝 Gestion des logs de téléchargement.
+- 📥 Téléchargement des archives des sites web et de leurs bases de données depuis un serveur en FTP.
+- 📝 Gestion des logs de téléchargement et des actions menées.
 - 🗑️ Suppression des anciennes archives selon des critères configurables.
 
 ## 📋 Prérequis
@@ -23,12 +23,12 @@ Ce script bash télécharge les archives de sauvegarde des sites web et de leurs
 
 ## 🔧 Variables à Configurer
 
-- `USER`: Nom d'utilisateur pour le serveur FTP.
-- `PASSWORD`: Mot de passe pour le serveur FTP.
+- `USER`: Nom d'utilisateur du compte FTP sur le serveur.
+- `PASSWORD`: Mot de passe du compte FTP sur le serveur.
 - `SERVER`: Adresse du serveur FTP.
 - `BACKUP_PATCH`: Chemin vers le répertoire où les sauvegardes seront stockées.
 - `LOGS_PATH`: Chemin vers le répertoire où les logs seront enregistrés.
-- `DAYS_OLD`: Nombre de jours après lesquels les archives seront candidates à la suppression (défaut: 30 jours).
+- `DAYS_OLD`: Nombre de jours après lesquels les archives seront candidates à la suppression (défaut: 60 jours).
 - `MIN_ARCHIVES`: Nombre minimum d'archives à conserver, même si elles sont plus anciennes que le nombre de jours spécifié (défaut: 3 archives).
 
 ## 📝 Exemple de Script
@@ -43,7 +43,7 @@ SERVER="ftp.exemple.com"
 BACKUP_PATCH="/chemin/vers/dossier/backup"
 DATE=$(date +"%Y-%m-%d")
 LOGS_PATH="/chemin/vers/logs"
-DAYS_OLD=30   # Nombre de jours d'ancienneté des archives avant suppression
+DAYS_OLD=60   # Nombre de jours d'ancienneté des archives avant suppression
 MIN_ARCHIVES=3 # Nombre minimum d'archives à conserver
 
 # Vérifier si le répertoire des logs existe
@@ -134,7 +134,7 @@ download_site_and_db() {
   log "Téléchargement des archives pour le site $site terminé"
 }
 ```
-Télécharge les archives du site et de sa base de données correspondante depuis le serveur FTP et enregistre les logs correspondants.
+Télécharge les archives du site et de sa base de données correspondante depuis le serveur en FTP et enregistre les logs correspondants.
 
 ### 🔄 Parcours et Suppression des Anciennes Archives avec Restriction
 ```bash

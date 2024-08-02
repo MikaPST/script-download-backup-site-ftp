@@ -41,11 +41,13 @@ download_site_and_db() {
 }
 
 # Définition des sites et de leurs bases de données correspondantes
+# A gauche "exemplesite01.com" est le nom de l'archive compressé contenant les fichiers du site web
+# A droite "db_site01" est le nom de l'archive compressée contenant le dump de la base de données du site web
 declare -A SITES_DBS=(
   ["exemplesite01.com"]="db_site01"
   ["exemplesite02.com"]="db_site02"
   ["exemplesite03.com"]="db_site03"
-  ["exemplesite04.com"]="db_site04"
+  ["exemplesite04.com"]="" # Exemple : Laisser vide si le site Web n'a pas de base de données
   ["exemplesite05.com"]="db_site05"
   ["exemplesite06.com"]="db_site06"
 )

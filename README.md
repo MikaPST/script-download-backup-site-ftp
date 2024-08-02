@@ -1,4 +1,4 @@
-# 🚀 Script de Sauvegarde de Site Web avec Gestion des Archives en FTP 📦
+# 💾 Script de Téléchargement en FTP et de Gestion d'Archives des Sauvegardes de Sites Web 📦
 
 [🇫🇷 Lire en Français](README.md) | [🇬🇧 Read in English](README_EN.md)
 
@@ -77,11 +77,13 @@ download_site_and_db() {
 }
 
 # Définition des sites et de leurs bases de données correspondantes
+# A gauche "exemplesite01.com" est le nom de l'archive compressé contenant les fichiers du site web
+# A droite "db_site01" est le nom de l'archive compressée contenant le dump de la base de données du site web
 declare -A SITES_DBS=(
   ["exemplesite01.com"]="db_site01"
   ["exemplesite02.com"]="db_site02"
   ["exemplesite03.com"]="db_site03"
-  ["exemplesite04.com"]="db_site04"
+  ["exemplesite04.com"]="" # Exemple : Laisser vide si le site Web n'a pas de base de données
   ["exemplesite05.com"]="db_site05"
   ["exemplesite06.com"]="db_site06"
 )
@@ -135,6 +137,20 @@ download_site_and_db() {
 }
 ```
 Télécharge les archives du site et de sa base de données correspondante depuis le serveur en FTP et enregistre les logs correspondants.
+
+### 🔗 Tableau d'Association et de Correspondance
+
+```bash
+declare -A SITES_DBS=(
+  ["exemplesite01.com"]="db_site01"
+  ["exemplesite02.com"]="db_site02"
+  ["exemplesite03.com"]="db_site03"
+  ["exemplesite04.com"]="" # Exemple : Laisser vide si le site Web n'a pas de base de données
+  ["exemplesite05.com"]="db_site05"
+  ["exemplesite06.com"]="db_site06"
+)
+```
+Cette fonction définit une table associative (dictionnaire) qui fait correspondre chaque site web à sa base de données. Si un site web n'a pas de base de données, la valeur est laissée vide.
 
 ### 🔄 Parcours et Suppression des Anciennes Archives avec Restriction
 ```bash

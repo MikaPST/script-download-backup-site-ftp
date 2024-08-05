@@ -188,9 +188,14 @@ declare -A SITES_DBS=(
 ```
 Cette fonction définit une table associative (dictionnaire) qui fait correspondre chaque site web à sa base de données. Si un site web n'a pas de base de données, la valeur est laissée vide.
 
-### 🔄 Parcours et Suppression des Anciennes Archives avec Restriction et suivis de
+### 🔄 Traitement et Gestion des Archives de Sauvegarde
 ```bash
- old_archives=$(find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
+for site in "${!SITES_DBS[@]}"; do
+    log "Début du traitement pour le site $site"
+    download_site_and_db "$site"
+    
+    log "Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
+    old_archives=$(find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
     if [ -z "$old_archives" ]; then
         log "Aucune archive à supprimer pour le site $site"
     else

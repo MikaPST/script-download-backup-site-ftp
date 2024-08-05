@@ -60,20 +60,39 @@ log() {
 
 # Fonction pour télécharger les archives pour un site et sa base de données correspondante
 download_site_and_db() {
-  local site=$1
-  local db=${SITES_DBS[$site]}
+    local site=$1
+    local db=${SITES_DBS[$site]}
+    local site_archive_found=false
+    local db_archive_found=false
 
-  log "Téléchargement de l'archive du site $site"
-  wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+    log "Début du téléchargement pour le site $site"
+    wget -q --spider ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD}
+    if [ $? -ne 0 ]; then
+        log "Erreur: L'archive du site $site n'a pas été trouvée ou n'a pas pu être téléchargée"
+    else
+        wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+        log "Téléchargement de l'archive du site $site terminé"
+        site_archive_found=true
+    fi
 
-  if [ -n "$db" ]; then
-    log "Téléchargement de l'archive de la base de données $db"
-    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "Aucune base de données associée trouvée pour le site $site"
-  fi
+    if [ -n "$db" ]; then
+        wget -q --spider ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD}
+        if [ $? -ne 0 ]; then
+            log "Erreur: L'archive de la base de données $db n'a pas été trouvée ou n'a pas pu être téléchargée"
+        else
+            wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+            log "Téléchargement de l'archive de la base de données $db terminé"
+            db_archive_found=true
+        fi
+    else
+        log "Aucune base de données associée trouvée pour le site $site"
+    fi
 
-  log "Téléchargement des archives pour le site $site terminé"
+    if $site_archive_found || $db_archive_found; then
+        log "Téléchargement des archives pour le site $site terminé"
+    else
+        log "Téléchargement des archives pour le site $site partiellement ou entièrement échoué"
+    fi
 }
 
 # Définition des sites et de leurs bases de données correspondantes
@@ -90,10 +109,26 @@ declare -A SITES_DBS=(
 
 # Parcourir tous les sites et télécharger leurs archives correspondantes
 for site in "${!SITES_DBS[@]}"; do
-  download_site_and_db "$site"
-  
-  # Supprimer les anciennes archives de plus de $DAYS_OLD jours en conservant les $MIN_ARCHIVES plus récentes
-  find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)) | xargs -0 rm -f
+    log "============================="
+    log "Début du traitement pour le site $site"
+    log "============================="
+
+    download_site_and_db "$site"
+    
+    log "Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
+    old_archives=$(find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
+    if [ -z "$old_archives" ]; then
+        log "Aucune archive à supprimer pour le site $site"
+    else
+        log "Archives à supprimer pour le site $site:"
+        echo "$old_archives" | tr '\0' '\n' >> "$LOGS_PATH/${DATE}_script_backup_logs"
+        echo "$old_archives" | xargs -0 rm -f
+        log "Suppression des anciennes archives terminée pour le site $site"
+    fi
+
+    log "============================="
+    log "Fin du traitement pour le site $site"
+    log "============================="
 done
 ```
 
@@ -120,20 +155,21 @@ Enregistre un message avec un horodatage dans le fichier de logs.
 ### 📥 Fonction download_site_and_db
 ```bash
 download_site_and_db() {
-  local site=$1
-  local db=${SITES_DBS[$site]}
+    local site=$1
+    local db=${SITES_DBS[$site]}
+    local site_archive_found=false
+    local db_archive_found=false
 
-  log "Téléchargement de l'archive du site $site"
-  wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-
-  if [ -n "$db" ]; then
-    log "Téléchargement de l'archive de la base de données $db"
-    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "Aucune base de données associée trouvée pour le site $site"
-  fi
-
-  log "Téléchargement des archives pour le site $site terminé"
+    log "Début du téléchargement pour le site $site"
+    wget -q --spider ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD}
+    if [ $? -ne 0 ]; then
+        log "Erreur: L'archive du site $site n'a pas été trouvée ou n'a pas pu être téléchargée"
+    else
+        wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+        log "Téléchargement de l'archive du site $site terminé"
+        site_archive_found=true
+    fi
+...
 }
 ```
 Télécharge les archives du site et de sa base de données correspondante depuis le serveur en FTP et enregistre les logs correspondants.
@@ -152,14 +188,16 @@ declare -A SITES_DBS=(
 ```
 Cette fonction définit une table associative (dictionnaire) qui fait correspondre chaque site web à sa base de données. Si un site web n'a pas de base de données, la valeur est laissée vide.
 
-### 🔄 Parcours et Suppression des Anciennes Archives avec Restriction
+### 🔄 Parcours et Suppression des Anciennes Archives avec Restriction et suivis de
 ```bash
-for site in "${!SITES_DBS[@]}"; do
-  download_site_and_db "$site"
-  
-  # Supprimer les anciennes archives de plus de $DAYS_OLD jours en conservant les $MIN_ARCHIVES plus récentes
-  find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)) | xargs -0 rm -f
-done
+ old_archives=$(find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
+    if [ -z "$old_archives" ]; then
+        log "Aucune archive à supprimer pour le site $site"
+    else
+        log "Archives à supprimer pour le site $site:"
+        echo "$old_archives" | tr '\0' '\n' >> "$LOGS_PATH/${DATE}_script_backup_logs"
+        echo "$old_archives" | xargs -0 rm -f
+...
 ```
 Parcourt tous les sites définis dans le tableau associatif SITES_DBS, télécharge leurs archives correspondantes et supprime les anciennes archives en gardant un nombre minimum d'archives.
 

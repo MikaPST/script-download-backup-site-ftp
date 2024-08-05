@@ -184,7 +184,7 @@ declare -A SITES_DBS=(
 ```
 Defines an associative array (dictionary) that maps each website to its database. If a website does not have a database, the value is left empty.
 
-### 🔄 Iterate and Delete Old Archives with Restriction
+### 🔄 Processing and Management of Backup Archives
 ```bash
 for site in "${!SITES_DBS[@]}"; do
     log "======================================================="

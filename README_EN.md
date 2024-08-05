@@ -167,6 +167,7 @@ download_site_and_db() {
     log "No associated database found for site $site"
   fi
 ...
+}
 ```
 Downloads the website and its corresponding database archives from the FTP server and logs the operations.
 

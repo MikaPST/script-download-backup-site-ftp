@@ -187,7 +187,7 @@ download_site_and_db() {
 }
 ```
 ### 🧹 Fonction cleaning_archives_old
-Supprime les anciennes archives de plus de $DAYS_OLD jours pour chaque site en conservant au moins $MIN_ARCHIVES archives récentes. Enregistre les archives supprimées dans le fichier de logs.
+Supprime les anciennes archives de plus de `$DAYS_OLD` jours pour chaque site en conservant au moins `$MIN_ARCHIVES` archives récentes. Enregistre les archives supprimées dans le fichier de logs.
 ```bash
 cleaning_archives_old() {
   log "[INFO] Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"

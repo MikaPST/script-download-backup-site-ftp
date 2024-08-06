@@ -2,13 +2,14 @@
 
 [🇫🇷 Lire en Français](README.md) | [🇬🇧 Read in English](README_EN.md)
 
-This bash script downloads backup archives of websites and their databases from an FTP server, and manages old archives by deleting those that are too old while retaining a minimum number of archives.
+This bash script downloads website and database backup archives from an FTP server and manages old archives by deleting those that are too old while keeping a minimum number of recent backups.
 
 ## 🌟 Features
 
-- 📥 Download website and database archives from an FTP server.
-- 📝 Manage download logs and actions taken.
-- 🗑️ Delete old archives based on configurable criteria.
+- 📥 Downloads website and database backup archives from an FTP server.
+- 📝 Logs download activities and actions performed.
+- 🗑️ Deletes old archives based on configurable criteria.
+- 📂 Automatically creates backup directories if needed.
 
 ## 📋 Prerequisites
 
@@ -29,10 +30,9 @@ This bash script downloads backup archives of websites and their databases from 
 - `BACKUP_PATCH`: Path to the directory where backups will be stored.
 - `LOGS_PATH`: Path to the directory where logs will be recorded.
 - `DAYS_OLD`: Number of days after which archives are eligible for deletion (default: 60 days).
-- `MIN_ARCHIVES`: Minimum number of archives to retain, even if they are older than the specified number of days (default: 3 archives).
+- `MIN_ARCHIVES`: Minimum number of archives to retain, even if they are older than the specified number of days (default: 4 archives).
 
 ## 📝 Script Example
-
 ```bash
 #!/bin/bash
 
@@ -40,170 +40,198 @@ This bash script downloads backup archives of websites and their databases from 
 USER="example@yourdomain.com"
 PASSWORD="FTP_PASSWORD"
 SERVER="ftp.example.com"
-BACKUP_PATH="/path/to/backup/folder"
+BACKUP_PATCH="/path/to/backup/folder"
 DATE=$(date +"%Y-%m-%d")
 LOGS_PATH="/path/to/logs"
-DAYS_OLD=60   # Number of days after which archives are candidates for deletion
-MIN_ARCHIVES=3 # Minimum number of archives to keep
+DAYS_OLD=60   # Number of days old archives will be eligible for deletion
+MIN_ARCHIVES=4 # Minimum number of archives to keep, even if older than $DAYS_OLD days
 
-# Check if the logs directory exists
+# Check if logs directory exists
 if [ ! -d "$LOGS_PATH" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - The logs directory $LOGS_PATH does not exist. Creating..."
-    mkdir -p "$LOGS_PATH"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - Logs directory $LOGS_PATH does not exist. Creating now"
+  mkdir -p "$LOGS_PATH"
 fi
 
-# Function to record logs
+# Log function
 log() {
-    local message=$1
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
+  local message=$1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >>"$LOGS_PATH/${DATE}_script_backup_logs"
 }
 
-# Function to download archives for a site and its corresponding database
+# Function to download site and its corresponding database archive
 download_site_and_db() {
-    local site=$1
-    local db=${SITES_DBS[$site]}
-    local site_archive_found=false
-    local db_archive_found=false
+  local site=$1
+  local db=${SITES_DBS[$site]}
 
-    log "Starting download for site $site"
-    wget -q --spider ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD}
-    if [ $? -ne 0 ]; then
-        log "Error: Site archive $site not found or could not be downloaded"
-    else
-        wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATH}/${site}
-        log "Site archive download for $site completed"
-        site_archive_found=true
-    fi
+  # Create backup directory for the site if it doesn't exist
+  if [ ! -d "${BACKUP_PATH}/${site}" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Creating backup folder for site $site."
+    mkdir -p "${BACKUP_PATH}/${site}"
+  fi
 
-    if [ -n "$db" ]; then
-        wget -q --spider ftp://${SERVER}/db_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD}
-        if [ $? -ne 0 ]; then
-            log "Error: Database archive $db not found or could not be downloaded"
-        else
-            wget ftp://${SERVER}/db_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATH}/${site}
-            log "Database archive download for $db completed"
-            db_archive_found=true
-        fi
-    else
-        log "No associated database found for site $site"
-    fi
+  if [ -n "$site" ]; then
+    log "[INFO] Downloading archive for site $site"
+    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  else
+    log "[ERROR] Failed to download archive for site $site."
+  fi
+  log "[SUCCESS] Download of archives for site $site completed"
 
-    if $site_archive_found || $db_archive_found; then
-        log "Archive download for site $site completed"
-    else
-        log "Archive download for site $site partially or entirely failed"
-    fi
+  if [ -n "$db" ]; then
+    log "[INFO] Downloading database archive $db"
+    wget ftp://${SERVER}/db_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  else
+    log "[WARNING] No associated database found for site $site"
+  fi
+
+  log "[SUCCESS] Download of archives for site $site completed"
 }
 
-# Define the sites and their corresponding databases
-# On the left, "examplesite01.com" is the name of the compressed archive containing the website files
-# On the right, "db_site01" is the name of the compressed archive containing the database dump
+# Function to delete old archives older than $DAYS_OLD days while keeping the most recent $MIN_ARCHIVES
+cleaning_archives_old() {
+  log "[INFO] Deleting archives older than $DAYS_OLD days for site $site while keeping $MIN_ARCHIVES most recent"
+  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
+  if [ -z "$old_archives" ]; then
+    log "[INFO] No archives to delete for site $site"
+  else
+    log "[INFO] Archives to be deleted for site $site:"
+    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
+    echo "$old_archives" | xargs -0 rm -f
+    if [ $? -eq 0 ]; then
+      log "[SUCCESS] Deletion of old archives for site $site completed"
+    else
+      log "[ERROR] Failed to delete old archives for site $site"
+    fi
+  fi
+}
+
+# Define sites and their corresponding database backups
+# On the left "example.com" is the name of the compressed archive containing the website files
+# On the right "db_example" is the name of the compressed archive containing the database dump for the website
 declare -A SITES_DBS=(
-  ["examplesite01.com"]="db_site01"
-  ["examplesite02.com"]="db_site02"
-  ["examplesite03.com"]="db_site03"
-  ["examplesite04.com"]="" # Example: Leave empty if the website has no database
-  ["examplesite05.com"]="db_site05"
-  ["examplesite06.com"]="db_site06"
+  ["example01.com"]="db_example01"
+  ["example02.com"]="db_example02"
+  ["example03.com"]="db_example03"
+  ["example04.com"]="" # Example: Leave empty if the website does not have a database
+  ["example05.com"]="db_example05"
+  ["example06.com"]="db_example06"
 )
 
-# Loop through all sites and download their corresponding archives
+# For each site:
+# Downloads their archives and corresponding databases
+# Deletes old archives older than $DAYS_OLD and keeps a retention of $MIN_ARCHIVES
 for site in "${!SITES_DBS[@]}"; do
-    log "======================================================="
-    log "Starting processing for site $site"
-    log "======================================================="
-
-    download_site_and_db "$site"
-    
-    log "Deleting old archives over $DAYS_OLD days for site $site while keeping the latest $MIN_ARCHIVES"
-    old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
-    if [ -z "$old_archives" ]; then
-        log "No archives to delete for site $site"
-    else
-        log "Archives to be deleted for site $site:"
-        echo "$old_archives" | tr '\0' '\n' >> "$LOGS_PATH/${DATE}_script_backup_logs"
-        echo "$old_archives" | xargs -0 rm -f
-        log "Old archive deletion completed for site $site"
-    fi
-
-    log "======================================================="
-    log ""
+  log "========================================================================================"
+  log "Starting processing for site $site"
+  log "========================================================================================"
+  download_site_and_db "$site"
+  cleaning_archives_old "$site"
+  log "========================================================================================"
+  log "Finished processing for site $site."
+  log "========================================================================================"
+  log ""
 done
 ```
 
 ## 📖 Function Explanations
 ### 📁 Log Directory Check and Creation
-
+Checks if the logs directory exists and creates it if not.
 ```bash
 if [ ! -d "$LOGS_PATH" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - The log directory $LOGS_PATH does not exist. Creating..."
-    mkdir -p "$LOGS_PATH"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - Logs directory $LOGS_PATH does not exist. Creating now"
+  mkdir -p "$LOGS_PATH"
 fi
 ```
-Checks if the log directory exists and creates it if it doesn't.
 
 ### 📝 Log Function
+Records a message with a timestamp in the log file.
 ```bash
 log() {
-    local message=$1
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
+  local message=$1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >>"$LOGS_PATH/${DATE}_script_backup_logs"
 }
 ```
-Records a message with a timestamp in the log file.
 
 ### 📥 Download Function for Site and Database
+Downloads the archives for the site and its corresponding database from the FTP server. Creates the backup directory for the site if it doesn't exist.
 ```bash
 download_site_and_db() {
   local site=$1
   local db=${SITES_DBS[$site]}
 
-  log "Downloading archive for site $site"
-  wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  # Create backup directory for the site if it doesn't exist
+  if [ ! -d "${BACKUP_PATH}/${site}" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Creating backup folder for site $site."
+    mkdir -p "${BACKUP_PATH}/${site}"
+  fi
+
+  if [ -n "$site" ]; then
+    log "[INFO] Downloading archive for site $site"
+    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  else
+    log "[ERROR] Failed to download archive for site $site."
+  fi
+  log "[SUCCESS] Download of archives for site $site completed"
 
   if [ -n "$db" ]; then
-    log "Downloading archive for database $db"
+    log "[INFO] Downloading database archive $db"
     wget ftp://${SERVER}/db_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
   else
-    log "No associated database found for site $site"
+    log "[WARNING] No associated database found for site $site"
   fi
-...
+
+  log "[SUCCESS] Download of archives for site $site completed"
 }
 ```
-Downloads the website and its corresponding database archives from the FTP server and logs the operations.
+### 🧹 Function cleaning_archives_old
+Deletes old archives older than `$DAYS_OLD` days for each site while keeping at least `$MIN_ARCHIVES` recent archives. Logs deleted archives.
+```bash
+cleaning_archives_old() {
+  log "[INFO] Deleting archives older than $DAYS_OLD days for site $site while keeping $MIN_ARCHIVES most recent"
+  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
+  if [ -z "$old_archives" ]; then
+    log "[INFO] No archives to delete for site $site"
+  else
+    log "[INFO] Archives to be deleted for site $site:"
+    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
+    echo "$old_archives" | xargs -0 rm -f
+    if [ $? -eq 0 ]; then
+      log "[SUCCESS] Deletion of old archives for site $site completed"
+    else
+      log "[ERROR] Failed to delete old archives for site $site"
+    fi
+  fi
+}
+```
 
 ### 🔗 Association Table and Correspondence
-
+Defines an associative array (dictionary) mapping each website to its database backup. If a website does not have a database, the value is left empty.
 ```bash
 declare -A SITES_DBS=(
-  ["examplesite01.com"]="db_site01"
-  ["examplesite02.com"]="db_site02"
-  ["examplesite03.com"]="db_site03"
-  ["examplesite04.com"]="" # Example: Leave empty if the website has no database
-  ["examplesite05.com"]="db_site05"
-  ["examplesite06.com"]="db_site06"
+  ["example01.com"]="db_example01"
+  ["example02.com"]="db_example02"
+  ["example03.com"]="db_example03"
+  ["example04.com"]="" # Example: Leave empty if the website does not have a database
+  ["example05.com"]="db_example05"
+  ["example06.com"]="db_example06"
 )
 ```
-Defines an associative array (dictionary) that maps each website to its database. If a website does not have a database, the value is left empty.
 
 ### 🔄 Processing and Management of Backup Archives
+Iterates through all sites defined in the associative array SITES_DBS, downloads their corresponding archives, and deletes old archives while keeping a minimum number of recent archives.
 ```bash
 for site in "${!SITES_DBS[@]}"; do
-    log "======================================================="
-    log "Starting processing for site $site"
-    log "======================================================="
-
-    download_site_and_db "$site"
-    
-    old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
-    if [ -z "$old_archives" ]; then
-        log "No archives to delete for site $site"
-    else
-        log "Archives to be deleted for site $site:"
-        echo "$old_archives" | tr '\0' '\n' >> "$LOGS_PATH/${DATE}_script_backup_logs"
-        echo "$old_archives" | xargs -0 rm -f
-...
+  log "========================================================================================"
+  log "Starting processing for site $site"
+  log "========================================================================================"
+  download_site_and_db "$site"
+  cleaning_archives_old "$site"
+  log "========================================================================================"
+  log "Finished processing for site $site."
+  log "========================================================================================"
+  log ""
+done
 ```
-Iterates over all sites defined in the associative array SITES_DBS, downloads their corresponding archives, and deletes old archives while keeping a minimum number of recent backups.
 
 ## 📜 License
 This script is licensed under the **MIT License**.

@@ -8,55 +8,65 @@ BACKUP_PATCH="/chemin/vers/dossier/backup"
 DATE=$(date +"%Y-%m-%d")
 LOGS_PATH="/chemin/vers/logs"
 DAYS_OLD=60   # Nombre de jours d'ancienneté des archives avant suppression
-MIN_ARCHIVES=3 # Nombre minimum d'archives à conserver
+MIN_ARCHIVES=4 # Nombre minimum d'archives à conserver
 
 # Vérifier si le répertoire des logs existe
 if [ ! -d "$LOGS_PATH" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Le répertoire des logs $LOGS_PATH n'existe pas. Création en cours..."
-    mkdir -p "$LOGS_PATH"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - Le répertoire des logs $LOGS_PATH n'existe pas. Création en cours"
+  mkdir -p "$LOGS_PATH"
 fi
 
 # Fonction pour enregistrer les logs
 log() {
-    local message=$1
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
+  local message=$1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >>"$LOGS_PATH/${DATE}_script_backup_logs"
 }
 
 # Fonction pour télécharger les archives pour un site et sa base de données correspondante
 download_site_and_db() {
-    local site=$1
-    local db=${SITES_DBS[$site]}
-    local site_archive_found=false
-    local db_archive_found=false
+  local site=$1
+  local db=${SITES_DBS[$site]}
 
-    log "Début du téléchargement pour le site $site"
-    wget -q --spider ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD}
-    if [ $? -ne 0 ]; then
-        log "Erreur: L'archive du site $site n'a pas été trouvée ou n'a pas pu être téléchargée"
-    else
-        wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-        log "Téléchargement de l'archive du site $site terminé"
-        site_archive_found=true
-    fi
+  # Créer le répertoire de sauvegarde pour le site s'il n'existe pas
+  if [ ! -d "${BACKUP_PATH}/${site}" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Création du dossier de sauvegarde du site $site."
+    mkdir -p "${BACKUP_PATH}/${site}"
+  fi
 
-    if [ -n "$db" ]; then
-        wget -q --spider ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD}
-        if [ $? -ne 0 ]; then
-            log "Erreur: L'archive de la base de données $db n'a pas été trouvée ou n'a pas pu être téléchargée"
-        else
-            wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-            log "Téléchargement de l'archive de la base de données $db terminé"
-            db_archive_found=true
-        fi
-    else
-        log "Aucune base de données associée trouvée pour le site $site"
-    fi
+  if [ -n "$site" ]; then
+    log "[INFO] Téléchargement de l'archive du site $site"
+    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  else
+    log "[ERROR] Échec du téléchargement de l'archive du site $site."
+  fi
+  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
 
-    if $site_archive_found || $db_archive_found; then
-        log "Téléchargement des archives pour le site $site terminé"
+  if [ -n "$db" ]; then
+    log "[INFO] Téléchargement de l'archive de la base de données $db"
+    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+  else
+    log "[WARNING] Aucune base de données associée trouvée pour le site $site"
+  fi
+
+  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
+}
+
+# Fonction pour supprimer les anciennes archives de plus de $DAYS_OLD jours en conservant les $MIN_ARCHIVES plus récentes
+cleaning_archives_old() {
+  log "[INFO] Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
+  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
+  if [ -z "$old_archives" ]; then
+    log "[INFO] Aucune archive à supprimer pour le site $site"
+  else
+    log "[INFO] Archives à supprimer pour le site $site:"
+    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
+    echo "$old_archives" | xargs -0 rm -f
+    if [ $? -eq 0 ]; then
+      log "[SUCCESS] Suppression des anciennes archives terminée pour le site $site"
     else
-        log "Téléchargement des archives pour le site $site partiellement ou entièrement échoué"
+      log "[ERROR] Échec de la suppression des anciennes archives pour le site $site"
     fi
+  fi
 }
 
 # Définition des sites et de leurs bases de données correspondantes
@@ -71,26 +81,17 @@ declare -A SITES_DBS=(
   ["exemplesite06.com"]="db_site06"
 )
 
-# Parcourir tous les sites et télécharger leurs archives correspondantes
+# Pour chaque site :
+# Télécharge les archives et les bases de données correspondantes
+# Supprime les anciennes archives plus de $DAYS_OLD et garde une rétention de $MIN_ARCHIVES
 for site in "${!SITES_DBS[@]}"; do
-    log "============================="
-    log "Début du traitement pour le site $site"
-    log "============================="
-
-    download_site_and_db "$site"
-    
-    log "Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
-    old_archives=$(find "${BACKUP_PATCH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES+1)))
-    if [ -z "$old_archives" ]; then
-        log "Aucune archive à supprimer pour le site $site"
-    else
-        log "Archives à supprimer pour le site $site:"
-        echo "$old_archives" | tr '\0' '\n' >> "$LOGS_PATH/${DATE}_script_backup_logs"
-        echo "$old_archives" | xargs -0 rm -f
-        log "Suppression des anciennes archives terminée pour le site $site"
-    fi
-
-    log "============================="
-    log "Fin du traitement pour le site $site"
-    log "============================="
+  log "========================================================================================"
+  log "Début du traitement pour le site $site"
+  log "========================================================================================"
+  download_site_and_db "$site"
+  cleaning_archives_old "$site"
+  log "========================================================================================"
+  log "Fin du traitement pour le site $site."
+  log "========================================================================================"
+  log ""
 done

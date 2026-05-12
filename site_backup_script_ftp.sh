@@ -4,7 +4,7 @@
 USER="exemple@yourdomaine.com"
 PASSWORD="FTP_PASSWORD"
 SERVER="ftp.exemple.com"
-BACKUP_PATCH="/chemin/vers/dossier/backup"
+BACKUP_PATH="/chemin/vers/dossier/backup"
 DATE=$(date +"%Y-%m-%d")
 LOGS_PATH="/chemin/vers/logs"
 DAYS_OLD=60   # Nombre de jours d'ancienneté des archives avant suppression
@@ -29,44 +29,109 @@ download_site_and_db() {
 
   # Créer le répertoire de sauvegarde pour le site s'il n'existe pas
   if [ ! -d "${BACKUP_PATH}/${site}" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Création du dossier de sauvegarde du site $site."
+    log "[INFO] Création du dossier de sauvegarde du site $site."
     mkdir -p "${BACKUP_PATH}/${site}"
   fi
 
   if [ -n "$site" ]; then
     log "[INFO] Téléchargement de l'archive du site $site"
-    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "[ERROR] Échec du téléchargement de l'archive du site $site."
+    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATH}/${site}
+    if [ $? -eq 0 ]; then
+      log "[SUCCESS] Téléchargement de l'archive du site $site terminé"
+    else
+      log "[ERROR] Échec du téléchargement de l'archive du site $site."
+    fi
   fi
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
 
   if [ -n "$db" ]; then
     log "[INFO] Téléchargement de l'archive de la base de données $db"
-    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
+    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATH}/${site}
+    if [ $? -eq 0 ]; then
+      log "[SUCCESS] Téléchargement de l'archive de la base de données $db terminé"
+    else
+      log "[ERROR] Échec du téléchargement de l'archive de la base de données $db."
+    fi
   else
     log "[WARNING] Aucune base de données associée trouvée pour le site $site"
   fi
-
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
 }
 
-# Fonction pour supprimer les anciennes archives de plus de $DAYS_OLD jours en conservant les $MIN_ARCHIVES plus récentes
+# Fonction pour supprimer les anciennes archives en se basant sur la date dans le nom du fichier
 cleaning_archives_old() {
-  log "[INFO] Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
-  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
-  if [ -z "$old_archives" ]; then
-    log "[INFO] Aucune archive à supprimer pour le site $site"
-  else
-    log "[INFO] Archives à supprimer pour le site $site:"
-    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
-    echo "$old_archives" | xargs -0 rm -f
-    if [ $? -eq 0 ]; then
-      log "[SUCCESS] Suppression des anciennes archives terminée pour le site $site"
-    else
-      log "[ERROR] Échec de la suppression des anciennes archives pour le site $site"
-    fi
+  local site=$1
+  log "[INFO] Suppression des archives de plus de $DAYS_OLD jours pour $site (rétention min : $MIN_ARCHIVES)"
+
+  local backup_dir="${BACKUP_PATH}/${site}"
+
+  # Extraire les fichiers contenant une date YYYY-MM-DD dans leur nom, triés du plus récent au plus ancien
+  local all_archives
+  mapfile -t all_archives < <(
+    find "$backup_dir" -maxdepth 1 -type f \
+    | grep -E '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
+    | sort -r
+  )
+
+  local total=${#all_archives[@]}
+  log "[INFO] $total archive(s) trouvée(s) pour $site"
+
+  if [ "$total" -eq 0 ]; then
+    log "[INFO] Aucune archive trouvée pour $site"
+    return
   fi
+
+  local today
+  today=$(date +%s)
+  local deleted=0
+  local skipped=0
+
+  for i in "${!all_archives[@]}"; do
+    local file="${all_archives[$i]}"
+    local filename
+    filename=$(basename "$file")
+
+    # Extraire la date YYYY-MM-DD du nom du fichier
+    local file_date
+    file_date=$(echo "$filename" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+
+    if [ -z "$file_date" ]; then
+      log "[WARNING] Impossible d'extraire la date de : $filename — ignoré"
+      continue
+    fi
+
+    # Calculer l'âge du fichier en jours
+    local file_epoch
+    file_epoch=$(date -d "$file_date" +%s 2>/dev/null)
+
+    if [ -z "$file_epoch" ]; then
+      log "[WARNING] Date invalide '$file_date' dans : $filename — ignoré"
+      continue
+    fi
+
+    local age_days=$(( (today - file_epoch) / 86400 ))
+
+    # Conserver si dans le top $MIN_ARCHIVES (index 0 à MIN_ARCHIVES-1)
+    if [ "$i" -lt "$MIN_ARCHIVES" ]; then
+      log "[INFO] Conservé (top $MIN_ARCHIVES) : $filename ($age_days j)"
+      (( skipped++ ))
+      continue
+    fi
+
+    # Supprimer si plus vieux que $DAYS_OLD jours
+    if [ "$age_days" -gt "$DAYS_OLD" ]; then
+      log "[INFO] Suppression : $filename ($age_days j > $DAYS_OLD j)"
+      if rm -f "$file"; then
+        log "[SUCCESS] Supprimé : $filename"
+        (( deleted++ ))
+      else
+        log "[ERROR] Échec suppression : $filename"
+      fi
+    else
+      log "[INFO] Conservé (récent) : $filename ($age_days j)"
+      (( skipped++ ))
+    fi
+  done
+
+  log "[INFO] Bilan $site — Supprimés : $deleted | Conservés : $skipped"
 }
 
 # Définition des sites et de leurs bases de données correspondantes

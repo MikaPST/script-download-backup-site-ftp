@@ -1,243 +1,298 @@
-# 💾 Script de Téléchargement en FTP des Sauvegardes de Sites Web 📦
+# 💾 Website and Database Backup Script 📦
 
-[🇫🇷 Lire en Français](README.md) | [🇬🇧 Read in English](README_EN.md)
+[🇬🇧 Read in English](README.md) | [🇫🇷 Lire en Français](README_FR.md)
 
-Ce script bash télécharge les archives de sauvegarde des sites web et de leurs bases de données depuis un serveur en FTP, et gère les anciennes archives en supprimant celles qui sont trop anciennes tout en conservant un nombre minimum d'archives.
+This bash script generates backup archives of websites and their databases directly on the hosting server, and prepares them to be retrieved via FTP by the client script.
 
-## 🌟 Fonctionnalités
+## 🌟 Features
 
-- 📥 Téléchargement des archives des sites web et de leurs bases de données depuis un serveur en FTP.
-- 📝 Gestion des logs de téléchargement et des actions menées.
-- 🗑️ Suppression des anciennes archives selon des critères configurables.
-- 📂 Création automatique des répertoires de sauvegarde si nécessaire.
+- 🗄️ Database backup and compression via `mysqldump`.
+- 📦 Website files archiving and compression via `tar`.
+- 📝 Logging of backup operations and actions taken.
+- 📂 Automatic creation of backup and log directories if needed.
+- ✅ Success verification for each operation with error handling.
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
-- `wget` doit être installé sur votre machine.
-- Accès à un serveur FTP contenant les archives des sites web et des bases de données.
+- `mysqldump` must be available on the server.
+- `tar` and `gzip` must be installed on the server.
+- Websites must be hosted under `/home/{USER}/{site_name}`.
+- The MySQL user must have sufficient privileges to dump the databases.
 
-## 🛠️ Utilisation
+## 🛠️ Usage
 
-1. Clonez ce dépôt ou téléchargez le script.
-2. Modifiez les variables en haut du script pour configurer les détails de votre serveur FTP, les chemins de sauvegarde et les critères de suppression des archives.
-3. Exécutez le script.
+1. Clone this repository or download the script to your hosting server.
+2. Edit the variables at the top of the script to match your environment.
+3. Make the script executable: `chmod +x script_backup_server.sh`
+4. Run it manually or schedule it via a cron job.
 
-## 🔧 Variables à Configurer
+### ⏰ Cron Job Example
 
-- `USER`: Nom d'utilisateur du compte FTP sur le serveur.
-- `PASSWORD`: Mot de passe du compte FTP sur le serveur.
-- `SERVER`: Adresse du serveur FTP.
-- `BACKUP_PATCH`: Chemin vers le répertoire où les sauvegardes seront stockées.
-- `LOGS_PATH`: Chemin vers le répertoire où les logs seront enregistrés.
-- `DAYS_OLD`: Nombre de jours après lesquels les archives seront candidates à la suppression (défaut: 60 jours).
-- `MIN_ARCHIVES`: Nombre minimum d'archives à conserver, même si elles sont plus anciennes que le nombre de jours spécifié (défaut: 4 archives).
+To run the script every day at 2:00 AM:
 
-## 📝 Exemple de Script
+```bash
+0 2 * * * /path/to/script_backup_server.sh
+```
+
+## 🔧 Variables to Configure
+
+- `USER`: System username under which the websites are hosted.
+- `DBADMIN`: Suffix of the MySQL username used for dumps (e.g. `DUMP` → user `USER_DUMP`).
+- `DBPW`: Password of the MySQL user.
+- `BACKUP_PATH`: Path to the directory where archives will be stored.
+- `LOGS_PATH`: Path to the directory where logs will be saved.
+
+## 📝 Script Example
 
 ```bash
 #!/bin/bash
 
 # Variables
-USER="exemple@yourdomaine.com"
-PASSWORD="FTP_PASSWORD"
-SERVER="ftp.exemple.com"
-BACKUP_PATCH="/chemin/vers/dossier/backup"
+USER="USER"
+DBADMIN="DUMP"
+DBPW="PASSWORD"
+BACKUP_PATH="/PATH/TO/BACKUP"
+LOGS_PATH="/PATH/TO/LOGS"
 DATE=$(date +"%Y-%m-%d")
-LOGS_PATH="/chemin/vers/logs"
-DAYS_OLD=60   # Nombre de jours d'ancienneté des archives avant suppression
-MIN_ARCHIVES=4 # Nombre minimum d'archives à conserver
 
-# Vérifier si le répertoire des logs existe
+# Logging function (defined first)
+log() {
+    local message=$1
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
+}
+
+# Check if the logs directory exists
 if [ ! -d "$LOGS_PATH" ]; then
-  echo "$(date '+%Y-%m-%d %H:%M:%S') - Le répertoire des logs $LOGS_PATH n'existe pas. Création en cours"
-  mkdir -p "$LOGS_PATH"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - Logs directory $LOGS_PATH does not exist. Creating it..."
+    mkdir -p "$LOGS_PATH"
 fi
 
-# Fonction pour enregistrer les logs
-log() {
-  local message=$1
-  echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >>"$LOGS_PATH/${DATE}_script_backup_logs"
-}
+# Check if the backup directory exists
+if [ ! -d "$BACKUP_PATH" ]; then
+    log "Backup directory $BACKUP_PATH does not exist. Creating it..."
+    mkdir -p "$BACKUP_PATH"
+fi
 
-# Fonction pour télécharger les archives pour un site et sa base de données correspondante
-download_site_and_db() {
-  local site=$1
-  local db=${SITES_DBS[$site]}
+# Function to back up a database
+backup_database() {
+    local db_name=$1
+    local output_file="${BACKUP_PATH}/bdd_${db_name}_${DATE}.sql.gz"
 
-  # Créer le répertoire de sauvegarde pour le site s'il n'existe pas
-  if [ ! -d "${BACKUP_PATH}/${site}" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Création du dossier de sauvegarde du site $site."
-    mkdir -p "${BACKUP_PATH}/${site}"
-  fi
+    log "[INFO] Backing up and compressing database ${db_name}..."
 
-  if [ -n "$site" ]; then
-    log "[INFO] Téléchargement de l'archive du site $site"
-    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "[ERROR] Échec du téléchargement de l'archive du site $site."
-  fi
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
+    local tmp_file
+    tmp_file=$(mktemp "${BACKUP_PATH}/bdd_${db_name}_${DATE}.XXXXXX.sql")
 
-  if [ -n "$db" ]; then
-    log "[INFO] Téléchargement de l'archive de la base de données $db"
-    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "[WARNING] Aucune base de données associée trouvée pour le site $site"
-  fi
+    mysqldump -u "${USER}_${DBADMIN}" -p"${DBPW}" "${USER}_${db_name}" > "$tmp_file"
 
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
-}
-
-# Fonction pour supprimer les anciennes archives de plus de $DAYS_OLD jours en conservant les $MIN_ARCHIVES plus récentes
-cleaning_archives_old() {
-  log "[INFO] Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
-  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
-  if [ -z "$old_archives" ]; then
-    log "[INFO] Aucune archive à supprimer pour le site $site"
-  else
-    log "[INFO] Archives à supprimer pour le site $site:"
-    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
-    echo "$old_archives" | xargs -0 rm -f
-    if [ $? -eq 0 ]; then
-      log "[SUCCESS] Suppression des anciennes archives terminée pour le site $site"
-    else
-      log "[ERROR] Échec de la suppression des anciennes archives pour le site $site"
+    if [ $? -ne 0 ]; then
+        log "[ERROR] mysqldump failed for database ${db_name}."
+        rm -f "$tmp_file"
+        return 1
     fi
-  fi
+
+    gzip -c "$tmp_file" > "$output_file"
+    rm -f "$tmp_file"
+
+    if [ ! -s "$output_file" ]; then
+        log "[ERROR] Backup file for database ${db_name} is empty or missing."
+        return 1
+    fi
+
+    log "[SUCCESS] Database ${db_name} backup complete: $(basename "$output_file")"
 }
 
-# Définition des sites et de leurs bases de données correspondantes
-# A gauche "exemplesite01.com" est le nom de l'archive compressé contenant les fichiers du site web
-# A droite "db_site01" est le nom de l'archive compressée contenant le dump de la base de données du site web
+# Function to back up a website
+backup_site() {
+    local site_name=$1
+    local output_file="${BACKUP_PATH}/site_${site_name}_${DATE}.tgz"
+    local site_path="/home/${USER}/${site_name}"
+
+    log "[INFO] Backing up and compressing site ${site_name}..."
+
+    if [ ! -d "$site_path" ]; then
+        log "[ERROR] Site directory for ${site_name} not found: $site_path"
+        return 1
+    fi
+
+    tar -zcf "$output_file" -C "/home/${USER}" "${site_name}"
+
+    if [ $? -ne 0 ]; then
+        log "[ERROR] Compression failed for site ${site_name}."
+        return 1
+    fi
+
+    if [ ! -s "$output_file" ]; then
+        log "[ERROR] Backup file for site ${site_name} is empty or missing."
+        return 1
+    fi
+
+    log "[SUCCESS] Site ${site_name} backup complete: $(basename "$output_file")"
+}
+
+# Define sites and their corresponding databases
 declare -A SITES_DBS=(
-  ["exemplesite01.com"]="db_site01"
-  ["exemplesite02.com"]="db_site02"
-  ["exemplesite03.com"]="db_site03"
-  ["exemplesite04.com"]="" # Exemple : Laisser vide si le site Web n'a pas de base de données
-  ["exemplesite05.com"]="db_site05"
-  ["exemplesite06.com"]="db_site06"
+    ["exemplesite01.com"]="db_site01"
+    ["exemplesite02.com"]="db_site02"
+    ["exemplesite03.com"]="db_site03"
+    ["exemplesite04.com"]="" # Leave empty if the site has no database
+    ["exemplesite05.com"]="db_site05"
+    ["exemplesite06.com"]="db_site06"
 )
 
-# Pour chaque site :
-# Télécharge les archives et les bases de données correspondantes
-# Supprime les anciennes archives plus de $DAYS_OLD et garde une rétention de $MIN_ARCHIVES
-for site in "${!SITES_DBS[@]}"; do
-  log "========================================================================================"
-  log "Début du traitement pour le site $site"
-  log "========================================================================================"
-  download_site_and_db "$site"
-  cleaning_archives_old "$site"
-  log "========================================================================================"
-  log "Fin du traitement pour le site $site."
-  log "========================================================================================"
-  log ""
+# Loop through all sites, back up the DB then the site files
+for site_name in "${!SITES_DBS[@]}"; do
+    db_name=${SITES_DBS[$site_name]}
+
+    log "========================================================================================"
+    log "Starting processing for site $site_name"
+    log "========================================================================================"
+
+    if [ -n "$db_name" ]; then
+        backup_database "$db_name"
+    else
+        log "[WARNING] No associated database found for site $site_name"
+    fi
+
+    backup_site "$site_name"
+
+    log "========================================================================================"
+    log "Processing complete for site $site_name"
+    log "========================================================================================"
+    log ""
 done
 ```
 
-## 📖 Explications des Fonctions
-### 📁 Vérification et Création du Répertoire de Logs
-Vérifie si le répertoire des logs existe, et le crée si ce n'est pas le cas.
+## 📖 Function Explanations
 
-```bash
-if [ ! -d "$LOGS_PATH" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Le répertoire des logs $LOGS_PATH n'existe pas. Création en cours..."
-    mkdir -p "$LOGS_PATH"
-fi
-```
+### 📝 log Function
+Defined first in the script. Logs a timestamped message to the daily log file.
 
-### 📝 Fonction log
-Enregistre un message avec un horodatage dans le fichier de logs.
 ```bash
 log() {
     local message=$1
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - $message" >> "$LOGS_PATH/${DATE}_script_backup_logs"
 }
 ```
 
+### 📁 Directory Check and Creation
+Checks whether the log and backup directories exist, and creates them if necessary.
 
-### 📥 Fonction download_site_and_db
-Télécharge les archives du site et de sa base de données correspondante depuis le serveur FTP. Crée le répertoire de sauvegarde pour le site s'il n'existe pas encore.
 ```bash
-download_site_and_db() {
-  local site=$1
-  local db=${SITES_DBS[$site]}
+if [ ! -d "$LOGS_PATH" ]; then
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - Logs directory $LOGS_PATH does not exist. Creating it..."
+    mkdir -p "$LOGS_PATH"
+fi
 
-  # Créer le répertoire de sauvegarde pour le site s'il n'existe pas
-  if [ ! -d "${BACKUP_PATH}/${site}" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Création du dossier de sauvegarde du site $site."
-    mkdir -p "${BACKUP_PATH}/${site}"
-  fi
-
-  if [ -n "$site" ]; then
-    log "[INFO] Téléchargement de l'archive du site $site"
-    wget ftp://${SERVER}/site_${site}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "[ERROR] Échec du téléchargement de l'archive du site $site."
-  fi
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
-
-  if [ -n "$db" ]; then
-    log "[INFO] Téléchargement de l'archive de la base de données $db"
-    wget ftp://${SERVER}/bdd_${db}* --ftp-user=${USER} --ftp-password=${PASSWORD} -P ${BACKUP_PATCH}/${site}
-  else
-    log "[WARNING] Aucune base de données associée trouvée pour le site $site"
-  fi
-
-  log "[SUCCESS] Téléchargement des archives pour le site $site terminé"
-}
+if [ ! -d "$BACKUP_PATH" ]; then
+    log "Backup directory $BACKUP_PATH does not exist. Creating it..."
+    mkdir -p "$BACKUP_PATH"
+fi
 ```
-### 🧹 Fonction cleaning_archives_old
-Supprime les anciennes archives de plus de `$DAYS_OLD` jours pour chaque site en conservant au moins `$MIN_ARCHIVES` archives récentes. Enregistre les archives supprimées dans le fichier de logs.
+
+### 🗄️ backup_database Function
+Dumps the database using `mysqldump`, compresses the output with `gzip`, and verifies each step. Uses a temporary file to catch `mysqldump` errors before compressing.
+
 ```bash
-cleaning_archives_old() {
-  log "[INFO] Suppression des anciennes archives de plus de $DAYS_OLD jours pour le site $site en conservant les $MIN_ARCHIVES plus récentes"
-  old_archives=$(find "${BACKUP_PATH}/${site}" -type f -mtime +$DAYS_OLD -print0 | sort -rz | tail -n +$((MIN_ARCHIVES + 1)))
-  if [ -z "$old_archives" ]; then
-    log "[INFO] Aucune archive à supprimer pour le site $site"
-  else
-    log "[INFO] Archives à supprimer pour le site $site:"
-    echo "$old_archives" | tr '\0' '\n' >>"$LOGS_PATH/${DATE}_script_backup_logs"
-    echo "$old_archives" | xargs -0 rm -f
-    if [ $? -eq 0 ]; then
-      log "[SUCCESS] Suppression des anciennes archives terminée pour le site $site"
-    else
-      log "[ERROR] Échec de la suppression des anciennes archives pour le site $site"
+backup_database() {
+    local db_name=$1
+    local output_file="${BACKUP_PATH}/bdd_${db_name}_${DATE}.sql.gz"
+
+    local tmp_file
+    tmp_file=$(mktemp "${BACKUP_PATH}/bdd_${db_name}_${DATE}.XXXXXX.sql")
+
+    mysqldump -u "${USER}_${DBADMIN}" -p"${DBPW}" "${USER}_${db_name}" > "$tmp_file"
+
+    if [ $? -ne 0 ]; then
+        log "[ERROR] mysqldump failed for database ${db_name}."
+        rm -f "$tmp_file"
+        return 1
     fi
-  fi
+
+    gzip -c "$tmp_file" > "$output_file"
+    rm -f "$tmp_file"
+    # ...
 }
 ```
 
-### 🔗 Tableau d'Association et de Correspondance
-Cette fonction définit une table associative (dictionnaire) qui fait correspondre chaque site web à sa base de données. Si un site web n'a pas de base de données, la valeur est laissée vide.
+### 📦 backup_site Function
+Archives and compresses the website files using `tar`. Checks that the site directory exists beforehand, then verifies the produced archive is not empty.
+
+```bash
+backup_site() {
+    local site_name=$1
+    local output_file="${BACKUP_PATH}/site_${site_name}_${DATE}.tgz"
+    local site_path="/home/${USER}/${site_name}"
+
+    if [ ! -d "$site_path" ]; then
+        log "[ERROR] Site directory for ${site_name} not found: $site_path"
+        return 1
+    fi
+
+    tar -zcf "$output_file" -C "/home/${USER}" "${site_name}"
+    # ...
+}
+```
+
+### 🔗 Association Map
+Defines an associative array that maps each website to its database. If a site has no database, the value is left empty.
+
 ```bash
 declare -A SITES_DBS=(
-  ["exemplesite01.com"]="db_site01"
-  ["exemplesite02.com"]="db_site02"
-  ["exemplesite03.com"]="db_site03"
-  ["exemplesite04.com"]="" # Exemple : Laisser vide si le site Web n'a pas de base de données
-  ["exemplesite05.com"]="db_site05"
-  ["exemplesite06.com"]="db_site06"
+    ["exemplesite01.com"]="db_site01"
+    ["exemplesite02.com"]="db_site02"
+    ["exemplesite03.com"]="db_site03"
+    ["exemplesite04.com"]="" # Leave empty if the site has no database
+    ["exemplesite05.com"]="db_site05"
+    ["exemplesite06.com"]="db_site06"
 )
 ```
 
-### 🔄 Traitement et Gestion des Archives de Sauvegarde
-Parcourt tous les sites définis dans le tableau associatif SITES_DBS, télécharge leurs archives correspondantes, et supprime les anciennes archives en gardant un nombre minimum d'archives.
+### 🔄 Backup Processing Loop
+Iterates over all sites defined in the `SITES_DBS` associative array, backs up the database if one exists, then archives the site files.
+
 ```bash
-for site in "${!SITES_DBS[@]}"; do
-  log "========================================================================================"
-  log "Début du traitement pour le site $site"
-  log "========================================================================================"
-  download_site_and_db "$site"
-  cleaning_archives_old "$site"
-  log "========================================================================================"
-  log "Fin du traitement pour le site $site."
-  log "========================================================================================"
-  log ""
+for site_name in "${!SITES_DBS[@]}"; do
+    db_name=${SITES_DBS[$site_name]}
+
+    log "========================================================================================"
+    log "Starting processing for site $site_name"
+    log "========================================================================================"
+
+    if [ -n "$db_name" ]; then
+        backup_database "$db_name"
+    else
+        log "[WARNING] No associated database found for site $site_name"
+    fi
+
+    backup_site "$site_name"
+
+    log "========================================================================================"
+    log "Processing complete for site $site_name"
+    log "========================================================================================"
+    log ""
 done
 ```
 
-## 📜 License
-Ce script est sous licence **MIT License**.
+## 🗂️ Archive Naming Convention
 
-## 🤝 Contribution
-Les contributions sont les bienvenues! N'hésitez pas à ouvrir une issue ou à soumettre une pull request.
+Generated archives follow this naming convention, compatible with the client script:
+
+| Type | Format | Example |
+|---|---|---|
+| Database | `bdd_{db_name}_{YYYY-MM-DD}.sql.gz` | `bdd_db_site01_2025-01-15.sql.gz` |
+| Website | `site_{site_name}_{YYYY-MM-DD}.tgz` | `site_exemplesite01.com_2025-01-15.tgz` |
+
+## 🔗 Associated Client Script
+
+This server-side script works in tandem with the **client script** available in this repository: [link to client script repository].
+
+The client script is responsible for:
+- Retrieving the archives produced by this script via FTP.
+- Managing local archive retention (deletion of old backups).
+
+## 📜 License
+This script is licensed under the **MIT License**.
+
+## 🤝 Contributing
+Contributions are welcome! Feel free to open an issue or submit a pull request.

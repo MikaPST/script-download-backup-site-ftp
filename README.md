@@ -326,7 +326,7 @@ This script expects archives whose filenames contain a date in `YYYY-MM-DD` form
 
 ## 🔗 Associated Server Script
 
-This client script works in tandem with the **server script** available in this repository: [[script-backup-site](https://github.com/MikaPST/script-backup-site)]..
+This client script works in tandem with the **server script** available in this repository: [[script-backup-site](https://github.com/MikaPST/script-backup-site)].
 
 The server script is responsible for:
 - Generating database dumps via `mysqldump`.
